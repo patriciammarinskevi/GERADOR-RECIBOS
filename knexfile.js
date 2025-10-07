@@ -1,9 +1,11 @@
 // knexfile.js
+
 module.exports = {
+  // Configuração para o seu ambiente local
   development: {
     client: 'sqlite3',
     connection: {
-      filename: './database.db' // O arquivo do nosso banco de dados local
+      filename: './database.db'
     },
     useNullAsDefault: true,
     migrations: {
@@ -11,11 +13,16 @@ module.exports = {
     }
   },
 
-  production: { // Já vamos deixar a configuração de produção pronta
-    client: 'pg', // PostgreSQL para o Supabase
-    connection: process.env.DATABASE_URL, // Usará a variável de ambiente no Render
+  // Configuração para o ambiente do Render (produção)
+  production: {
+    client: 'pg', // Cliente PostgreSQL
+    connection: process.env.DATABASE_URL, // Usa a variável de ambiente do Render
     migrations: {
       directory: './database/migrations'
+    },
+    pool: {
+      min: 2,
+      max: 10
     }
   }
 };
