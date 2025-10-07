@@ -13,13 +13,21 @@ const fs = require('fs');
 const puppeteer = require('puppeteer');
 const extenso = require('numero-por-extenso');
 
-// --- CONFIGURAÇÃO DO BANCO DE DADOS (KNEX) ---
+// --- CONFIGURAÇÃO DO BANCO DE DADOS (KNEX) --- //
+// ########## INÍCIO DA CORREÇÃO ##########
 const knexConfig = require('./knexfile');
-const knex = require('knex')(knexConfig.development);
+// Define o ambiente com base na variável NODE_ENV, ou usa 'development' como padrão
+const environment = process.env.NODE_ENV || 'development';
+// Seleciona a configuração correta do knexfile.js
+const configuration = knexConfig[environment];
+// Inicializa o knex com a configuração dinâmica
+const knex = require('knex')(configuration);
+// ########## FIM DA CORREÇÃO ##########
+
 
 // --- INICIALIZAÇÃO DO SERVIDOR EXPRESS ---
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000; // Já estava correto
 
 // --- CONFIGURAÇÕES GLOBAIS DA EMPRESA ---
 const DADOS_EMPRESA = {
@@ -29,10 +37,9 @@ const DADOS_EMPRESA = {
 };
 
 // --- MIDDLEWARE ---
-app.use(express.static('public')); // Serve os arquivos estáticos (imagens, etc.)
+app.use(express.static('public'));
 app.use(express.json());
 
-// Adiciona um middleware para servir os PDFs temporários
 const tempDir = path.join(__dirname, 'temp_pdfs');
 app.use('/temp_pdfs', express.static(tempDir));
 
@@ -107,7 +114,6 @@ app.post('/gerar-recibos', async (request, response) => {
         return response.status(400).json({ error: 'O período de referência é obrigatório.' });
     }
 
-    // Limpa o diretório temporário de execuções anteriores
     if (fs.existsSync(tempDir)) {
         fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -125,7 +131,6 @@ app.post('/gerar-recibos', async (request, response) => {
 
         const periodoSanitizado = periodo.replace(/[^a-z0-9]/gi, '-');
 
-        // --- LÓGICA PARA CALCULAR OS DIAS DO MÊS ---
         const meses = {
             'janeiro': 0, 'fevereiro': 1, 'março': 2, 'abril': 3, 'maio': 4, 'junho': 5,
             'julho': 6, 'agosto': 7, 'setembro': 8, 'outubro': 9, 'novembro': 10, 'dezembro': 11
@@ -140,7 +145,6 @@ app.post('/gerar-recibos', async (request, response) => {
             const mesFormatado = String(mesNumero + 1).padStart(2, '0');
             diasTrabalhadosStr = `(${String(1).padStart(2, '0')}/${mesFormatado} a ${ultimoDia}/${mesFormatado})`;
         }
-        // --- FIM DA LÓGICA DE DATA ---
 
         for (const funcionario of funcionariosDoBanco) {
             const { nome_completo, cpf, salario_base } = funcionario;
