@@ -107,7 +107,7 @@ function interpretarPeriodo(periodoEntrada) {
     if (!Number.isNaN(mesDetectado) && mesDetectado >= 1 && mesDetectado <= 12 && !Number.isNaN(anoDetectado)) {
         const ultimoDia = new Date(anoDetectado, mesDetectado, 0).getDate();
         const mesFormatado = String(mesDetectado).padStart(2, '0');
-        
+
         // ########## INÍCIO DA CORREÇÃO ##########
         const dataInicioFormatada = `(${'01'}/${mesFormatado})`;
         const dataFimFormatada = `(${String(ultimoDia).padStart(2, '0')}/${mesFormatado})`;
@@ -151,7 +151,7 @@ aplicacao.post('/api/funcionarios', async (requisicao, resposta) => {
         const funcionarioInserido = await bancoDeDados('funcionarios')
             .insert({ nome_completo, cpf, salario_base })
             .returning('id');
-        
+
         const idInserido = funcionarioInserido[0].id;
         // ########## FIM DA CORREÇÃO ##########
 
@@ -202,7 +202,6 @@ aplicacao.delete('/api/funcionarios/:id', async (requisicao, resposta) => {
 // =============================================================
 //              ROTA PARA GERAR E LISTAR RECIBOS (PDF)
 // =============================================================
-
 aplicacao.post('/gerar-recibos', async (requisicao, resposta) => {
     const { periodo } = requisicao.body;
     if (!periodo) {
@@ -221,16 +220,25 @@ aplicacao.post('/gerar-recibos', async (requisicao, resposta) => {
         }
 
         const arquivoTemplate = fs.readFileSync(path.join(__dirname, 'views', 'recibo-template.html'), 'utf-8');
-        
+
         const resultadoPeriodo = interpretarPeriodo(String(periodo));
         const periodoCompleto = resultadoPeriodo.textoFormatado;
         const periodoSanitizadoParaArquivo = resultadoPeriodo.stringSanitizada.replace(/[^a-z0-9\-]/gi, '-');
 
         const nomesArquivosGerados = [];
+
+        // ########## INÍCIO DA CORREÇÃO ##########
         const navegador = await puppeteer.launch({
             headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+            // Adicionamos o caminho explícito para o executável do Chrome
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage'
+            ]
         });
+        // ########## FIM DA CORREÇÃO ##########
 
         try {
             for (const funcionario of listaFuncionarios) {
@@ -263,7 +271,7 @@ aplicacao.post('/gerar-recibos', async (requisicao, resposta) => {
 
                 const pagina = await navegador.newPage();
                 await pagina.setContent(conteudoHtml, { waitUntil: 'networkidle0' });
-                
+
                 const nomeParaArquivo = sanitizarNomeArquivo(nomeCompleto);
                 const nomeArquivoPdf = `RECIBO-PAGAMENTO-${nomeParaArquivo}-${periodoSanitizadoParaArquivo}.pdf`;
                 const caminhoPdf = path.join(diretorioTemporario, nomeArquivoPdf);
@@ -287,9 +295,4 @@ aplicacao.post('/gerar-recibos', async (requisicao, resposta) => {
         console.error('Erro ao gerar PDFs:', erro);
         return resposta.status(500).json({ error: 'Falha ao gerar os recibos.' });
     }
-});
-
-// --- INICIALIZAÇÃO DO SERVIDOR ---
-aplicacao.listen(porta, () => {
-    console.log(`Servidor rodando em http://localhost:${porta} - ${new Date().toLocaleDateString('pt-BR')}`);
 });
