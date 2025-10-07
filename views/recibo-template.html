@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
+
+        body {
+            font-family: 'Roboto', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            font-size: 12pt;
+            background-color: #fff;
+        }
+
+        .page {
+            width: 210mm;
+            min-height: 297mm;
+            padding: 25mm;
+            margin: 0 auto;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .header {
+            text-align: left;
+            flex-shrink: 0;
+        }
+
+        .footer {
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .header img {
+            width: 100px;
+        }
+
+        .content {
+            flex-grow: 1;
+            margin-top: 50px;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 40px;
+            font-size: 20pt;
+            font-weight: 700;
+            text-decoration: underline;
+        }
+
+        p {
+            line-height: 2;
+            text-align: justify;
+            font-size: 14pt;
+        }
+
+        .periodo-dias {
+            font-size: 11pt;
+            color: #555;
+            text-align: right;
+            margin-top: -10px;
+        }
+
+        /* --- NOVO ESTILO PARA O CPF --- */
+        .cpf-formatado {
+            padding-left: 5px;
+            padding-right: 5px;
+        }
+
+        .assinatura {
+            margin-top: 100px;
+            text-align: center;
+            font-size: 14pt;
+        }
+
+        .data-local {
+            text-align: right;
+            margin-top: 70px;
+            font-size: 14pt;
+        }
+
+        .footer img {
+            width: 180px;
+            margin-top: 80px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="page">
+        <header class="header">
+            <img src="http://localhost:3000/logo-empresa.jpg" alt="Logo da Empresa">
+        </header>
+
+        <main class="content">
+            <h1>RECIBO</h1>
+            <p>
+                Eu, <strong>{{NOME}}</strong>, portador(a) do CPF <strong class="cpf-formatado">{{CPF}}</strong>,
+                recebi da empresa <strong>{{EMPRESA_NOME}}</strong>, CNPJ <strong>{{EMPRESA_CNPJ}}</strong>, a
+                importância de
+                <strong>{{VALOR_FORMATADO}} ({{VALOR_POR_EXTENSO}})</strong>, referente aos dias trabalhados no período
+                de
+                <strong>{{PERIODO}}</strong>.
+            </p>
+            <p class="periodo-dias">{{DIAS_TRABALHADOS}}</p>
+        </main>
+
+        <footer>
+            <div class="data-local">
+                {{CIDADE}}, {{DATA_ATUAL}}
+            </div>
+
+            <div class="assinatura">
+                ________________________________________<br>
+                <strong>ASSINATURA</strong>
+            </div>
+
+            <div class="footer">
+                <img src="http://localhost:3000/logo-alianca.png" alt="Logo Aliança">
+            </div>
+        </footer>
+    </div>
+</body>
+
+</html>

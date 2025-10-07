@@ -1,0 +1,11 @@
+# Dependencies
+/node_modules
+
+# Local databases
+database.db
+
+# Environment variables
+.env
+
+# Temporary files
+/temp_pdfs
