@@ -10,13 +10,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- FUNÇÕES DA API ---
 
-    // 1. Buscar todos os funcionários e renderizar na tabela
     const fetchAndRenderEmployees = async () => {
         try {
             const response = await fetch('/api/funcionarios');
+            if (!response.ok) throw new Error('Falha ao buscar funcionários.');
             const employees = await response.json();
             
-            employeeTableBody.innerHTML = ''; // Limpa a tabela
+            employeeTableBody.innerHTML = '';
             if (employees.length === 0) {
                 employeeTableBody.innerHTML = '<tr><td colspan="4" style="text-align:center;">Nenhum funcionário cadastrado.</td></tr>';
             } else {
@@ -40,7 +40,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // 2. Salvar (Criar ou Atualizar) um funcionário
     const saveEmployee = async (employeeData) => {
         const url = isEditing ? `/api/funcionarios/${employeeIdInput.value}` : '/api/funcionarios';
         const method = isEditing ? 'PUT' : 'POST';
@@ -51,23 +50,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(employeeData),
             });
-            if (!response.ok) throw new Error('Falha ao salvar funcionário.');
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Falha ao salvar funcionário.');
+            
             resetForm();
-            await fetchAndRenderEmployees(); // Atualiza a tabela
+            await fetchAndRenderEmployees();
             statusMessage.textContent = `Funcionário ${isEditing ? 'atualizado' : 'salvo'} com sucesso!`;
         } catch (error) {
             console.error('Erro ao salvar funcionário:', error);
-            statusMessage.textContent = 'Erro ao salvar funcionário.';
+            statusMessage.textContent = `Erro: ${error.message}`;
         }
     };
 
-    // 3. Deletar um funcionário
     const deleteEmployee = async (id) => {
         if (!confirm('Tem certeza que deseja excluir este funcionário?')) return;
         try {
             const response = await fetch(`/api/funcionarios/${id}`, { method: 'DELETE' });
             if (!response.ok) throw new Error('Falha ao deletar funcionário.');
-            await fetchAndRenderEmployees(); // Atualiza a tabela
+            await fetchAndRenderEmployees();
             statusMessage.textContent = 'Funcionário excluído com sucesso!';
         } catch (error) {
             console.error('Erro ao deletar funcionário:', error);
@@ -87,7 +87,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const populateFormForEdit = async (id) => {
         try {
-            const response = await fetch('/api/funcionarios');
+            const response = await fetch(`/api/funcionarios`);
             const employees = await response.json();
             const employeeToEdit = employees.find(emp => emp.id == id);
             
@@ -99,7 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 isEditing = true;
                 cancelBtn.style.display = 'inline-block';
                 document.querySelector('#save-btn').textContent = 'Atualizar Funcionário';
-                window.scrollTo(0, 0); // Rola para o topo para ver o formulário
+                window.scrollTo(0, 0);
             }
         } catch (error) {
             console.error('Erro ao buscar dados para edição:', error);
@@ -108,7 +108,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- EVENT LISTENERS ---
 
-    // Salvar/Atualizar
     employeeForm.addEventListener('submit', (e) => {
         e.preventDefault();
         const employeeData = {
@@ -119,20 +118,14 @@ document.addEventListener('DOMContentLoaded', () => {
         saveEmployee(employeeData);
     });
 
-    // Clicar em "Editar" ou "Excluir" na tabela
     employeeTableBody.addEventListener('click', (e) => {
         const action = e.target.dataset.action;
         const id = e.target.dataset.id;
-        if (action === 'edit') {
-            populateFormForEdit(id);
-        } else if (action === 'delete') {
-            deleteEmployee(id);
-        }
+        if (action === 'edit') populateFormForEdit(id);
+        else if (action === 'delete') deleteEmployee(id);
     });
 
-    // =============================================================
-    //           LÓGICA DE GERAÇÃO DE RECIBOS MODIFICADA
-    // =============================================================
+    // ### MELHORIA 1: LÓGICA DE GERAÇÃO DE RECIBOS MODIFICADA PARA ARQUIVO ZIP ###
     generateForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const generateBtn = document.getElementById('generate-btn');
@@ -152,32 +145,20 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) {
                 throw new Error(data.error || 'Falha na geração dos recibos.');
             }
-
-            statusMessage.textContent = 'Iniciando downloads... Por favor, verifique sua pasta de downloads.';
-
-            // Função auxiliar para baixar um arquivo
-            const downloadFile = (fileName) => {
-                const a = document.createElement('a');
-                // O servidor está servindo os arquivos da pasta 'temp_pdfs'
-                a.href = `/temp_pdfs/${fileName}`; 
-                a.download = fileName; // O nome que o arquivo terá no computador do usuário
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-            };
             
-            // Itera sobre a lista de arquivos recebida e inicia o download de cada um
-            data.files.forEach((file, index) => {
-                // Adiciona um pequeno atraso entre os downloads para evitar que o navegador bloqueie
-                setTimeout(() => {
-                    downloadFile(file);
-                }, index * 1000); // 1 segundo de intervalo
-            });
+            statusMessage.textContent = 'Geração concluída! Iniciando download do arquivo ZIP...';
+            
+            // Inicia o download do arquivo ZIP
+            const a = document.createElement('a');
+            a.href = `/temp_files/${data.file}`; 
+            a.download = data.file;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
             
             setTimeout(() => {
-                 statusMessage.textContent = `${data.files.length} recibos foram baixados com sucesso!`;
-            }, data.files.length * 1000);
-
+                 statusMessage.textContent = `Arquivo ${data.file} baixado com sucesso!`;
+            }, 2000);
 
         } catch (error) {
             console.error('Erro ao gerar recibos:', error);
@@ -187,10 +168,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-
-    // Cancelar edição
     cancelBtn.addEventListener('click', resetForm);
 
-    // --- INICIALIZAÇÃO ---
     fetchAndRenderEmployees();
 });

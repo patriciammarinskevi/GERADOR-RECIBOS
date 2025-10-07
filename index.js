@@ -3,13 +3,8 @@
  *
  * Servidor principal da aplicação de geração de recibos.
  * - API CRUD para funcionários (SQLite/PostgreSQL via Knex).
- * - Geração de recibos em PDF via Puppeteer.
+ * - Geração de um arquivo ZIP com recibos em PDF via Puppeteer.
  * - Servir arquivos estáticos do frontend.
- *
- * Observações:
- * - O campo `periodo` do POST para /gerar-recibos aceita formatos como:
- * "09/2025", "9/2025", "setembro/2025", "set/2025", "out/2025", "Outubro/2025".
- * - O recibo inclui o trecho no formato: "Mês/Ano (DD/MM) (DD/MM)".
  */
 
 const express = require('express');
@@ -17,6 +12,7 @@ const path = require('path');
 const fs = require('fs');
 const puppeteer = require('puppeteer');
 const numeroPorExtenso = require('numero-por-extenso');
+const archiver = require('archiver'); // ### MELHORIA 1: Adicionado para criar arquivos ZIP
 
 // --- CONFIGURAÇÃO DO KNEX / BANCO DE DADOS ---
 const configuracaoKnexArquivo = require('./knexfile');
@@ -36,32 +32,46 @@ const DADOS_EMPRESA = {
 };
 
 // --- MIDDLEWARE ---
+// Serve arquivos estáticos do frontend (HTML, CSS, JS)
 aplicacao.use(express.static('public'));
 aplicacao.use(express.json());
 
-const diretorioTemporario = path.join(__dirname, 'temp_pdfs');
-aplicacao.use('/temp_pdfs', express.static(diretorioTemporario));
+// Cria e serve a pasta de arquivos temporários
+const diretorioTemporario = path.join(__dirname, 'temp_files');
+if (!fs.existsSync(diretorioTemporario)) {
+    fs.mkdirSync(diretorioTemporario, { recursive: true });
+}
+aplicacao.use('/temp_files', express.static(diretorioTemporario));
 
 // --- FUNÇÕES AUXILIARES ---
 
 /**
+ * Converte um arquivo de imagem para uma string Base64 (Data URI).
+ */
+function imagemParaBase64(caminhoArquivo) {
+    try {
+        const bitmap = fs.readFileSync(caminhoArquivo);
+        const mimeType = path.extname(caminhoArquivo) === '.png' ? 'image/png' : 'image/jpeg';
+        return `data:${mimeType};base64,` + Buffer.from(bitmap).toString('base64');
+    } catch (error) {
+        console.error(`Erro ao ler a imagem ${caminhoArquivo}:`, error);
+        return ''; // Retorna string vazia se a imagem não for encontrada
+    }
+}
+
+/**
  * Sanitiza uma string para uso em nome de arquivo.
- * Remove acentos, caracteres especiais e substitui espaços por underscore.
  */
 function sanitizarNomeArquivo(texto) {
     return texto
-        .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // remove acentos
-        .replace(/[^a-zA-Z0-9\-_. ]/g, '') // remove chars especiais
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-zA-Z0-9\-_. ]/g, '')
         .trim()
         .replace(/\s+/g, '_');
 }
 
 /**
- * Faz o parse do campo `periodo` e retorna um objeto com:
- * - mes (1..12) ou null
- * - ano ou null
- * - textoFormatado (ex: "setembro/2025 (01/09) (30/09)" ou fallback para entrada original)
- * - stringSanitizada para usar em nome de arquivo (ex: "09-2025")
+ * Interpreta o período de entrada.
  */
 function interpretarPeriodo(periodoEntrada) {
     if (!periodoEntrada || typeof periodoEntrada !== 'string') {
@@ -69,7 +79,6 @@ function interpretarPeriodo(periodoEntrada) {
     }
 
     const textoOriginal = periodoEntrada.trim();
-
     const mesesPorNome = {
         'janeiro': 1, 'fevereiro': 2, 'março': 3, 'marco': 3, 'abril': 4,
         'maio': 5, 'junho': 6, 'julho': 7, 'agosto': 8, 'setembro': 9,
@@ -84,46 +93,30 @@ function interpretarPeriodo(periodoEntrada) {
     let anoDetectado = NaN;
 
     if (partes.length >= 2) {
-        const possivelMes = partes[0].toLowerCase();
+        const possivelMes = partes[0].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         const possivelAno = partes[1];
 
         if (/^\d{1,2}$/.test(possivelMes)) {
             mesDetectado = parseInt(possivelMes, 10);
+        } else if (mesesPorNome[possivelMes]) {
+            mesDetectado = mesesPorNome[possivelMes];
         } else {
-            const semAcento = possivelMes.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-            if (mesesPorNome[semAcento]) {
-                mesDetectado = mesesPorNome[semAcento];
-            } else {
-                const abre = semAcento.substr(0, 3);
-                if (abreviaturas[abre]) mesDetectado = abreviaturas[abre];
-            }
+            const abre = possivelMes.substr(0, 3);
+            if (abreviaturas[abre]) mesDetectado = abreviaturas[abre];
         }
 
-        if (/^\d{4}$/.test(possivelAno)) {
-            anoDetectado = parseInt(possivelAno, 10);
-        }
+        if (/^\d{4}$/.test(possivelAno)) anoDetectado = parseInt(possivelAno, 10);
     }
-
+    
     if (!Number.isNaN(mesDetectado) && mesDetectado >= 1 && mesDetectado <= 12 && !Number.isNaN(anoDetectado)) {
         const ultimoDia = new Date(anoDetectado, mesDetectado, 0).getDate();
         const mesFormatado = String(mesDetectado).padStart(2, '0');
-
-        // ########## INÍCIO DA CORREÇÃO ##########
-        const dataInicioFormatada = `(${'01'}/${mesFormatado})`;
-        const dataFimFormatada = `(${String(ultimoDia).padStart(2, '0')}/${mesFormatado})`;
-        const textoFormatado = `${textoOriginal} ${dataInicioFormatada} ${dataFimFormatada}`;
-        // ########## FIM DA CORREÇÃO ##########
-
+        const textoFormatado = `01/${mesFormatado}/${anoDetectado} a ${String(ultimoDia).padStart(2, '0')}/${mesFormatado}/${anoDetectado}`;
         const stringSanitizada = `${mesFormatado}-${anoDetectado}`;
         return { mes: mesDetectado, ano: anoDetectado, textoFormatado, stringSanitizada };
     }
-
-    return {
-        mes: null,
-        ano: null,
-        textoFormatado: textoOriginal,
-        stringSanitizada: textoOriginal.replace(/[^a-z0-9]/gi, '-')
-    };
+    
+    return { mes: null, ano: null, textoFormatado: textoOriginal, stringSanitizada: textoOriginal.replace(/[^a-z0-9]/gi, '-') };
 }
 
 // =============================================================
@@ -143,26 +136,15 @@ aplicacao.get('/api/funcionarios', async (requisicao, resposta) => {
 aplicacao.post('/api/funcionarios', async (requisicao, resposta) => {
     try {
         const { nome_completo, cpf, salario_base } = requisicao.body;
-        if (!nome_completo || !cpf || !salario_base) {
+        if (!nome_completo || !cpf || salario_base === undefined) {
             return resposta.status(400).json({ error: 'Todos os campos são obrigatórios.' });
         }
-
-        // ########## INÍCIO DA CORREÇÃO (COMPATIBILIDADE COM POSTGRESQL) ##########
-        const funcionarioInserido = await bancoDeDados('funcionarios')
-            .insert({ nome_completo, cpf, salario_base })
-            .returning('id');
-
-        const idInserido = funcionarioInserido[0].id;
-        // ########## FIM DA CORREÇÃO ##########
-
-        const novoFuncionario = await bancoDeDados('funcionarios').where({ id: idInserido }).first();
+        const [novoFuncionario] = await bancoDeDados('funcionarios').insert({ nome_completo, cpf, salario_base }).returning('*');
         resposta.status(201).json(novoFuncionario);
     } catch (erro) {
-        // ########## INÍCIO DA CORREÇÃO (ERRO DE CPF DUPLICADO) ##########
-        if (erro.code === '23505') { // Código de erro para violação de chave única no PostgreSQL
+        if (erro.code === '23505' || erro.code === 'SQLITE_CONSTRAINT') {
             return resposta.status(409).json({ error: 'Este CPF já está cadastrado.' });
         }
-        // ########## FIM DA CORREÇÃO ##########
         console.error('Erro ao adicionar funcionário:', erro);
         resposta.status(500).json({ error: 'Erro interno ao adicionar funcionário.' });
     }
@@ -173,7 +155,6 @@ aplicacao.put('/api/funcionarios/:id', async (requisicao, resposta) => {
         const { id } = requisicao.params;
         const { nome_completo, cpf, salario_base } = requisicao.body;
         const quantidadeAtualizada = await bancoDeDados('funcionarios').where({ id }).update({ nome_completo, cpf, salario_base });
-
         if (quantidadeAtualizada === 0) {
             return resposta.status(404).json({ error: 'Funcionário não encontrado.' });
         }
@@ -200,7 +181,7 @@ aplicacao.delete('/api/funcionarios/:id', async (requisicao, resposta) => {
 });
 
 // =============================================================
-//              ROTA PARA GERAR E LISTAR RECIBOS (PDF)
+//              ROTA PARA GERAR O ARQUIVO ZIP COM RECIBOS
 // =============================================================
 aplicacao.post('/gerar-recibos', async (requisicao, resposta) => {
     const { periodo } = requisicao.body;
@@ -208,91 +189,82 @@ aplicacao.post('/gerar-recibos', async (requisicao, resposta) => {
         return resposta.status(400).json({ error: 'O período de referência é obrigatório.' });
     }
 
-    if (fs.existsSync(diretorioTemporario)) {
-        fs.rmSync(diretorioTemporario, { recursive: true, force: true });
-    }
-    fs.mkdirSync(diretorioTemporario, { recursive: true });
-
     try {
         const listaFuncionarios = await bancoDeDados('funcionarios').select('*');
         if (!listaFuncionarios || listaFuncionarios.length === 0) {
-            return resposta.status(404).json({ error: 'Nenhum funcionário encontrado.' });
+            return resposta.status(404).json({ error: 'Nenhum funcionário cadastrado para gerar recibos.' });
         }
 
         const arquivoTemplate = fs.readFileSync(path.join(__dirname, 'views', 'recibo-template.html'), 'utf-8');
+        
+        // ### CORREÇÃO 3: Converte imagens para Base64 uma única vez
+        const logoEmpresaBase64 = imagemParaBase64(path.join(__dirname, 'public', 'images', 'logo-empresa.jpg'));
+        const logoAliancaBase64 = imagemParaBase64(path.join(__dirname, 'public', 'images', 'logo-alianca.png'));
 
         const resultadoPeriodo = interpretarPeriodo(String(periodo));
-        const periodoCompleto = resultadoPeriodo.textoFormatado;
-        const periodoSanitizadoParaArquivo = resultadoPeriodo.stringSanitizada.replace(/[^a-z0-9\-]/gi, '-');
+        const periodoSanitizadoParaArquivo = resultadoPeriodo.stringSanitizada;
+        
+        const nomeArquivoZip = `Recibos_${periodoSanitizadoParaArquivo}.zip`;
+        const caminhoArquivoZip = path.join(diretorioTemporario, nomeArquivoZip);
+        const output = fs.createWriteStream(caminhoArquivoZip);
+        const archive = archiver('zip', { zlib: { level: 9 } });
 
-        const nomesArquivosGerados = [];
+        output.on('close', () => {
+            console.log(`Arquivo ZIP criado: ${archive.pointer()} bytes totais.`);
+            resposta.status(200).json({
+                message: 'Recibos gerados e compactados com sucesso.',
+                file: nomeArquivoZip
+            });
+        });
+        archive.on('error', err => { throw err; });
+        archive.pipe(output);
 
-        // ########## INÍCIO DA CORREÇÃO ##########
+        // ### CORREÇÃO 2: Configuração do Puppeteer para o Render
         const navegador = await puppeteer.launch({
             headless: true,
-            // Adicionamos o caminho explícito para o executável do Chrome
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage'
-            ]
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
         });
-        // ########## FIM DA CORREÇÃO ##########
+        
+        for (const funcionario of listaFuncionarios) {
+            const valorNumerico = parseFloat(String(funcionario.salario_base).replace(',', '.')) || 0;
+            const valorFormatado = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorNumerico);
+            const valorPorExtenso = numeroPorExtenso.porExtenso(valorNumerico, 'monetario').toUpperCase();
+            const dataAtualFormatada = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
 
-        try {
-            for (const funcionario of listaFuncionarios) {
-                const nomeCompleto = funcionario.nome_completo || '';
-                const cpf = funcionario.cpf || '';
-                const salarioBase = funcionario.salario_base || '0';
+            const conteudoHtml = arquivoTemplate
+                .replace(/{{LOGO_EMPRESA}}/g, logoEmpresaBase64)
+                .replace(/{{LOGO_ALIANCA}}/g, logoAliancaBase64)
+                .replace(/{{NOME}}/g, funcionario.nome_completo)
+                .replace(/{{CPF}}/g, funcionario.cpf)
+                .replace(/{{VALOR_FORMATADO}}/g, valorFormatado)
+                .replace(/{{VALOR_POR_EXTENSO}}/g, valorPorExtenso)
+                .replace(/{{PERIODO}}/g, resultadoPeriodo.textoFormatado)
+                .replace(/{{DATA_ATUAL}}/g, dataAtualFormatada)
+                .replace(/{{EMPRESA_NOME}}/g, DADOS_EMPRESA.nome)
+                .replace(/{{EMPRESA_CNPJ}}/g, DADOS_EMPRESA.cnpj)
+                .replace(/{{CIDADE}}/g, DADOS_EMPRESA.cidade);
 
-                const valorNumerico = parseFloat(String(salarioBase).replace(',', '.')) || 0;
-                const valorFormatado = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorNumerico);
-
-                let valorPorExtenso = '';
-                try {
-                    valorPorExtenso = numeroPorExtenso.porExtenso(valorNumerico, 'monetario').toUpperCase();
-                } catch (erroExtenso) {
-                    console.warn('Falha ao converter valor por extenso para', nomeCompleto, erroExtenso);
-                }
-
-                const dataAtualFormatada = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
-
-                const conteudoHtml = arquivoTemplate
-                    .replace(/{{NOME}}/g, nomeCompleto)
-                    .replace(/{{CPF}}/g, cpf)
-                    .replace(/{{VALOR_FORMATADO}}/g, valorFormatado)
-                    .replace(/{{VALOR_POR_EXTENSO}}/g, valorPorExtenso)
-                    .replace(/{{PERIODO}}/g, periodoCompleto)
-                    .replace(/{{DATA_ATUAL}}/g, dataAtualFormatada)
-                    .replace(/{{EMPRESA_NOME}}/g, DADOS_EMPRESA.nome)
-                    .replace(/{{EMPRESA_CNPJ}}/g, DADOS_EMPRESA.cnpj)
-                    .replace(/{{CIDADE}}/g, DADOS_EMPRESA.cidade);
-
-                const pagina = await navegador.newPage();
-                await pagina.setContent(conteudoHtml, { waitUntil: 'networkidle0' });
-
-                const nomeParaArquivo = sanitizarNomeArquivo(nomeCompleto);
-                const nomeArquivoPdf = `RECIBO-PAGAMENTO-${nomeParaArquivo}-${periodoSanitizadoParaArquivo}.pdf`;
-                const caminhoPdf = path.join(diretorioTemporario, nomeArquivoPdf);
-
-                await pagina.pdf({ path: caminhoPdf, format: 'A4', printBackground: true });
-                nomesArquivosGerados.push(nomeArquivoPdf);
-
-                await pagina.close();
-            }
-        } finally {
-            await navegador.close();
+            const pagina = await navegador.newPage();
+            await pagina.setContent(conteudoHtml, { waitUntil: 'networkidle0' });
+            const bufferPdf = await pagina.pdf({ format: 'A4', printBackground: true });
+            
+            const nomeArquivoPdf = `RECIBO-${sanitizarNomeArquivo(funcionario.nome_completo)}-${periodoSanitizadoParaArquivo}.pdf`;
+            archive.append(bufferPdf, { name: nomeArquivoPdf });
+            
+            await pagina.close();
         }
 
-        return resposta.status(200).json({
-            message: 'Recibos gerados com sucesso.',
-            files: nomesArquivosGerados,
-            periodo: periodoSanitizadoParaArquivo
-        });
+        await navegador.close();
+        await archive.finalize();
 
     } catch (erro) {
-        console.error('Erro ao gerar PDFs:', erro);
-        return resposta.status(500).json({ error: 'Falha ao gerar os recibos.' });
+        console.error('Erro ao gerar recibos:', erro);
+        resposta.status(500).json({ error: 'Falha interna ao gerar os recibos.' });
     }
+});
+
+// ### CORREÇÃO 1: Iniciar o servidor ###
+aplicacao.listen(porta, () => {
+    console.log(`🚀 Servidor rodando na porta ${porta}`);
 });

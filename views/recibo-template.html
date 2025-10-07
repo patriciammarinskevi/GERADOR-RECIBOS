@@ -70,7 +70,7 @@
 <body>
     <div class="page">
         <header class="header">
-            <img src="http://localhost:3000/logo-empresa.jpg" alt="Logo da Empresa">
+            <img src="{{LOGO_EMPRESA}}" alt="Logo da Empresa">
         </header>
 
         <main class="content">
@@ -80,7 +80,7 @@
                 Eu, <strong>{{NOME}}</strong>, portador(a) do CPF <strong class="cpf-formatado">{{CPF}}</strong>, 
                 recebi da empresa <strong>{{EMPRESA_NOME}}</strong>, CNPJ <strong>{{EMPRESA_CNPJ}}</strong>, 
                 a importância de <strong>{{VALOR_FORMATADO}} ({{VALOR_POR_EXTENSO}})</strong>, 
-                referente aos dias trabalhados no período de 
+                referente ao período de trabalho de
                 <strong>{{PERIODO}}</strong>.
             </p>
         </main>
@@ -96,7 +96,7 @@
             </div>
 
             <div class="footer-logo-container">
-                <img src="http://localhost:3000/logo-alianca.png" alt="Logo Aliança">
+                <img src="{{LOGO_ALIANCA}}" alt="Logo Aliança">
             </div>
         </footer>
     </div>
