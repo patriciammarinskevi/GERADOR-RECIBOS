@@ -12,7 +12,7 @@ const path = require('path');
 const fs = require('fs');
 const puppeteer = require('puppeteer');
 const numeroPorExtenso = require('numero-por-extenso');
-const archiver = require('archiver'); // ### MELHORIA 1: Adicionado para criar arquivos ZIP
+const archiver = require('archiver');
 
 // --- CONFIGURAÇÃO DO KNEX / BANCO DE DADOS ---
 const configuracaoKnexArquivo = require('./knexfile');
@@ -36,12 +36,10 @@ const DADOS_EMPRESA = {
 aplicacao.use(express.static('public'));
 aplicacao.use(express.json());
 
-// Cria e serve a pasta de arquivos temporários
+// Define o caminho para a pasta de arquivos temporários
 const diretorioTemporario = path.join(__dirname, 'temp_files');
-if (!fs.existsSync(diretorioTemporario)) {
-    fs.mkdirSync(diretorioTemporario, { recursive: true });
-}
 aplicacao.use('/temp_files', express.static(diretorioTemporario));
+
 
 // --- FUNÇÕES AUXILIARES ---
 
@@ -119,6 +117,7 @@ function interpretarPeriodo(periodoEntrada) {
     return { mes: null, ano: null, textoFormatado: textoOriginal, stringSanitizada: textoOriginal.replace(/[^a-z0-9]/gi, '-') };
 }
 
+
 // =============================================================
 //               API CRUD PARA GERENCIAR FUNCIONÁRIOS
 // =============================================================
@@ -180,6 +179,7 @@ aplicacao.delete('/api/funcionarios/:id', async (requisicao, resposta) => {
     }
 });
 
+
 // =============================================================
 //              ROTA PARA GERAR O ARQUIVO ZIP COM RECIBOS
 // =============================================================
@@ -189,15 +189,20 @@ aplicacao.post('/gerar-recibos', async (requisicao, resposta) => {
         return resposta.status(400).json({ error: 'O período de referência é obrigatório.' });
     }
 
+    let navegador;
     try {
+        // ### CORREÇÃO DE LÓGICA: Limpa e recria a pasta temporária no início
+        if (fs.existsSync(diretorioTemporario)) {
+            fs.rmSync(diretorioTemporario, { recursive: true, force: true });
+        }
+        fs.mkdirSync(diretorioTemporario, { recursive: true });
+
         const listaFuncionarios = await bancoDeDados('funcionarios').select('*');
         if (!listaFuncionarios || listaFuncionarios.length === 0) {
             return resposta.status(404).json({ error: 'Nenhum funcionário cadastrado para gerar recibos.' });
         }
 
         const arquivoTemplate = fs.readFileSync(path.join(__dirname, 'views', 'recibo-template.html'), 'utf-8');
-
-        // ### CORREÇÃO 3: Converte imagens para Base64 uma única vez
         const logoEmpresaBase64 = imagemParaBase64(path.join(__dirname, 'public', 'images', 'logo-empresa.jpg'));
         const logoAliancaBase64 = imagemParaBase64(path.join(__dirname, 'public', 'images', 'logo-alianca.png'));
 
@@ -216,11 +221,11 @@ aplicacao.post('/gerar-recibos', async (requisicao, resposta) => {
                 file: nomeArquivoZip
             });
         });
+        
         archive.on('error', err => { throw err; });
         archive.pipe(output);
 
-        // ### CORREÇÃO 2: Configuração do Puppeteer para o Render
-        const navegador = await puppeteer.launch({
+        navegador = await puppeteer.launch({
             headless: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
         });
@@ -244,26 +249,35 @@ aplicacao.post('/gerar-recibos', async (requisicao, resposta) => {
                 .replace(/{{EMPRESA_CNPJ}}/g, DADOS_EMPRESA.cnpj)
                 .replace(/{{CIDADE}}/g, DADOS_EMPRESA.cidade);
 
+            const nomeArquivoPdf = `RECIBO-${sanitizarNomeArquivo(funcionario.nome_completo)}-${periodoSanitizadoParaArquivo}.pdf`;
+            const caminhoPdfTemporario = path.join(diretorioTemporario, nomeArquivoPdf);
+
             const pagina = await navegador.newPage();
             await pagina.setContent(conteudoHtml, { waitUntil: 'domcontentloaded' });
-            const bufferPdf = await pagina.pdf({ format: 'A4', printBackground: true });
-
-            const nomeArquivoPdf = `RECIBO-${sanitizarNomeArquivo(funcionario.nome_completo)}-${periodoSanitizadoParaArquivo}.pdf`;
-            archive.append(bufferPdf, { name: nomeArquivoPdf });
+            await pagina.pdf({ path: caminhoPdfTemporario, format: 'A4', printBackground: true });
+            
+            archive.append(fs.createReadStream(caminhoPdfTemporario), { name: nomeArquivoPdf });
 
             await pagina.close();
         }
-
+        
         await navegador.close();
         await archive.finalize();
 
     } catch (erro) {
         console.error('Erro ao gerar recibos:', erro);
+        // Garante que o navegador seja fechado em caso de erro
+        if (navegador) {
+            await navegador.close();
+        }
         resposta.status(500).json({ error: 'Falha interna ao gerar os recibos.' });
     }
 });
 
-// ### CORREÇÃO 1: Iniciar o servidor ###
+
+// =============================================================
+//               INICIA O SERVIDOR EXPRESS
+// =============================================================
 aplicacao.listen(porta, () => {
     console.log(`🚀 Servidor rodando na porta ${porta}`);
 });
