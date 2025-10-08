@@ -245,7 +245,7 @@ aplicacao.post('/gerar-recibos', async (requisicao, resposta) => {
                 .replace(/{{CIDADE}}/g, DADOS_EMPRESA.cidade);
 
             const pagina = await navegador.newPage();
-            await pagina.setContent(conteudoHtml, { waitUntil: 'networkidle0' });
+            await pagina.setContent(conteudoHtml, { waitUntil: 'domcontentloaded' });
             const bufferPdf = await pagina.pdf({ format: 'A4', printBackground: true });
 
             const nomeArquivoPdf = `RECIBO-${sanitizarNomeArquivo(funcionario.nome_completo)}-${periodoSanitizadoParaArquivo}.pdf`;
