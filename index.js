@@ -71,6 +71,11 @@ function sanitizarNomeArquivo(texto) {
 /**
  * Interpreta o período de entrada.
  */
+// SUBSTITUA A FUNÇÃO ANTIGA POR ESTA
+
+/**
+ * Interpreta o período de entrada.
+ */
 function interpretarPeriodo(periodoEntrada) {
     if (!periodoEntrada || typeof periodoEntrada !== 'string') {
         return { mes: null, ano: null, textoFormatado: periodoEntrada, stringSanitizada: String(periodoEntrada).replace(/[^a-z0-9]/gi, '-') };
@@ -94,6 +99,7 @@ function interpretarPeriodo(periodoEntrada) {
         const possivelMes = partes[0].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         const possivelAno = partes[1];
 
+        // Lógica para detectar o mês (igual a anterior)
         if (/^\d{1,2}$/.test(possivelMes)) {
             mesDetectado = parseInt(possivelMes, 10);
         } else if (mesesPorNome[possivelMes]) {
@@ -103,7 +109,12 @@ function interpretarPeriodo(periodoEntrada) {
             if (abreviaturas[abre]) mesDetectado = abreviaturas[abre];
         }
 
-        if (/^\d{4}$/.test(possivelAno)) anoDetectado = parseInt(possivelAno, 10);
+        // ### CORREÇÃO: Lógica melhorada para detectar o ano ###
+        if (/^\d{4}$/.test(possivelAno)) { // Checa se tem 4 dígitos (ex: 2025)
+            anoDetectado = parseInt(possivelAno, 10);
+        } else if (/^\d{2}$/.test(possivelAno)) { // Checa se tem 2 dígitos (ex: 25)
+            anoDetectado = 2000 + parseInt(possivelAno, 10); // Converte para 2025
+        }
     }
 
     if (!Number.isNaN(mesDetectado) && mesDetectado >= 1 && mesDetectado <= 12 && !Number.isNaN(anoDetectado)) {
@@ -114,6 +125,7 @@ function interpretarPeriodo(periodoEntrada) {
         return { mes: mesDetectado, ano: anoDetectado, textoFormatado, stringSanitizada };
     }
 
+    // Se não conseguir entender, retorna o texto original
     return { mes: null, ano: null, textoFormatado: textoOriginal, stringSanitizada: textoOriginal.replace(/[^a-z0-9]/gi, '-') };
 }
 
@@ -221,7 +233,7 @@ aplicacao.post('/gerar-recibos', async (requisicao, resposta) => {
                 file: nomeArquivoZip
             });
         });
-        
+
         archive.on('error', err => { throw err; });
         archive.pipe(output);
 
@@ -255,12 +267,12 @@ aplicacao.post('/gerar-recibos', async (requisicao, resposta) => {
             const pagina = await navegador.newPage();
             await pagina.setContent(conteudoHtml, { waitUntil: 'domcontentloaded' });
             await pagina.pdf({ path: caminhoPdfTemporario, format: 'A4', printBackground: true });
-            
+
             archive.append(fs.createReadStream(caminhoPdfTemporario), { name: nomeArquivoPdf });
 
             await pagina.close();
         }
-        
+
         await navegador.close();
         await archive.finalize();
 
