@@ -107,7 +107,7 @@ function interpretarPeriodo(periodoEntrada) {
 
         if (/^\d{4}$/.test(possivelAno)) anoDetectado = parseInt(possivelAno, 10);
     }
-    
+
     if (!Number.isNaN(mesDetectado) && mesDetectado >= 1 && mesDetectado <= 12 && !Number.isNaN(anoDetectado)) {
         const ultimoDia = new Date(anoDetectado, mesDetectado, 0).getDate();
         const mesFormatado = String(mesDetectado).padStart(2, '0');
@@ -115,7 +115,7 @@ function interpretarPeriodo(periodoEntrada) {
         const stringSanitizada = `${mesFormatado}-${anoDetectado}`;
         return { mes: mesDetectado, ano: anoDetectado, textoFormatado, stringSanitizada };
     }
-    
+
     return { mes: null, ano: null, textoFormatado: textoOriginal, stringSanitizada: textoOriginal.replace(/[^a-z0-9]/gi, '-') };
 }
 
@@ -196,14 +196,14 @@ aplicacao.post('/gerar-recibos', async (requisicao, resposta) => {
         }
 
         const arquivoTemplate = fs.readFileSync(path.join(__dirname, 'views', 'recibo-template.html'), 'utf-8');
-        
+
         // ### CORREÇÃO 3: Converte imagens para Base64 uma única vez
         const logoEmpresaBase64 = imagemParaBase64(path.join(__dirname, 'public', 'images', 'logo-empresa.jpg'));
         const logoAliancaBase64 = imagemParaBase64(path.join(__dirname, 'public', 'images', 'logo-alianca.png'));
 
         const resultadoPeriodo = interpretarPeriodo(String(periodo));
         const periodoSanitizadoParaArquivo = resultadoPeriodo.stringSanitizada;
-        
+
         const nomeArquivoZip = `Recibos_${periodoSanitizadoParaArquivo}.zip`;
         const caminhoArquivoZip = path.join(diretorioTemporario, nomeArquivoZip);
         const output = fs.createWriteStream(caminhoArquivoZip);
@@ -222,10 +222,9 @@ aplicacao.post('/gerar-recibos', async (requisicao, resposta) => {
         // ### CORREÇÃO 2: Configuração do Puppeteer para o Render
         const navegador = await puppeteer.launch({
             headless: true,
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
         });
-        
+
         for (const funcionario of listaFuncionarios) {
             const valorNumerico = parseFloat(String(funcionario.salario_base).replace(',', '.')) || 0;
             const valorFormatado = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorNumerico);
@@ -248,10 +247,10 @@ aplicacao.post('/gerar-recibos', async (requisicao, resposta) => {
             const pagina = await navegador.newPage();
             await pagina.setContent(conteudoHtml, { waitUntil: 'networkidle0' });
             const bufferPdf = await pagina.pdf({ format: 'A4', printBackground: true });
-            
+
             const nomeArquivoPdf = `RECIBO-${sanitizarNomeArquivo(funcionario.nome_completo)}-${periodoSanitizadoParaArquivo}.pdf`;
             archive.append(bufferPdf, { name: nomeArquivoPdf });
-            
+
             await pagina.close();
         }
 
